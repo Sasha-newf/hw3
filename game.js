@@ -415,7 +415,8 @@
     }
 
     function agent() {
-        let bestMove = selectBestMove(current);
+        let bestMove = beamSearchAgent(current, next);
+
         if (bestMove) {
             current.x   = bestMove.x;
             current.y   = bestMove.y;
