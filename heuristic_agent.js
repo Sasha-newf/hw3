@@ -66,7 +66,7 @@ function evaluateBoard(board) {
         }
     }
 
-    // Bumpiness (difference between neighbor columns)
+    // Bumpiness (difference between neighboring column heights)
     for (let x = 0; x < nx - 1; x++) {
         bumpiness += Math.abs(columnHeights[x] - columnHeights[x + 1]);
     }
@@ -110,6 +110,7 @@ function copyBlocks(src) {
 
 // ---------------------------------------------------------------------
 // Helper: compute drop position for a given type/x/dir on current board
+// (uses global 'blocks')
 // ---------------------------------------------------------------------
 
 function getDropPositionFor(type, x, dir) {
@@ -121,7 +122,8 @@ function getDropPositionFor(type, x, dir) {
 }
 
 // ---------------------------------------------------------------------
-// Generate all possible moves for the current piece
+// Generate all possible moves for the current piece on CURRENT board
+// (simple heuristic agent)
 // ---------------------------------------------------------------------
 
 function getPossibleMoves(piece) {
@@ -157,7 +159,7 @@ function getPossibleMoves(piece) {
 }
 
 // ---------------------------------------------------------------------
-// Select the best move according to the heuristic
+// Select the best move according to the heuristic (1-ply agent)
 // ---------------------------------------------------------------------
 
 function selectBestMove(piece) {
@@ -174,4 +176,114 @@ function selectBestMove(piece) {
     });
 
     return bestMove;
+}
+
+// =====================================================================
+// BEAM SEARCH AGENT
+// =====================================================================
+
+const BEAM_WIDTH = 5;
+const BEAM_DEPTH = 2;
+
+function occupiedOnBoard(type, x, y, dir, board) {
+    let result = false;
+    eachblock(type, x, y, dir, function (bx, by) {
+        if (bx < 0 || bx >= nx || by < 0 || by >= ny)
+            result = true;
+        else if (board[bx] && board[bx][by])
+            result = true;
+    });
+    return result;
+}
+
+function getDropPositionOnBoard(type, x, dir, board) {
+    let y = 0;
+    while (!occupiedOnBoard(type, x, y + 1, dir, board)) {
+        y++;
+    }
+    return y;
+}
+
+function getPossibleMovesOnBoard(piece, board) {
+    let moves = [];
+    let type = piece.type;
+
+    for (let dir = 0; dir < 4; dir++) {
+        for (let x = 0; x <= nx - type.size; x++) {
+
+            if (occupiedOnBoard(type, x, 0, dir, board))
+                continue;
+
+            let y = getDropPositionOnBoard(type, x, dir, board);
+
+            let newBoard = copyBlocks(board);
+            eachblock(type, x, y, dir, function (bx, by) {
+                newBoard[bx][by] = type;
+            });
+
+            moves.push({
+                x: x,
+                y: y,
+                dir: dir,
+                board: newBoard
+            });
+        }
+    }
+
+    return moves;
+}
+
+function makeNode(board, firstMove, score) {
+    return {
+        board: board,
+        firstMove: firstMove,
+        score: score
+    };
+}
+
+function beamSearchAgent(currentPiece, nextPiece) {
+    let rootBoard = copyBlocks(blocks);
+    let beam = [makeNode(rootBoard, null, evaluateBoard(rootBoard))];
+
+    let pieceTypesByDepth = [
+        currentPiece.type,
+        nextPiece ? nextPiece.type : null
+    ];
+
+    for (let depth = 0; depth < BEAM_DEPTH; depth++) {
+        let type = pieceTypesByDepth[depth];
+        if (!type)
+            break;
+
+        let candidates = [];
+
+        for (let node of beam) {
+            let pseudoPiece = { type: type };
+            let moves = getPossibleMovesOnBoard(pseudoPiece, node.board);
+
+            for (let move of moves) {
+                let evalScore = evaluateBoard(move.board);
+
+                let firstMove = node.firstMove || {
+                    x: move.x,
+                    y: move.y,
+                    dir: move.dir
+                };
+
+                let totalScore = evalScore;
+
+                candidates.push(
+                    makeNode(move.board, firstMove, totalScore)
+                );
+            }
+        }
+
+        if (candidates.length === 0)
+            break;
+
+        candidates.sort((a, b) => b.score - a.score);
+        beam = candidates.slice(0, BEAM_WIDTH);
+    }
+
+    return beam.length > 0 ? beam[0].firstMove : null;
 }
